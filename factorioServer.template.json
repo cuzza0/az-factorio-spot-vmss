@@ -34,7 +34,14 @@
         1
       ],
       "metadata": {
-        "description": "description"
+        "description": "Number of instances to determine if it is running or not"
+      }
+    },
+    "maxPrice": {
+      "type": "int",
+      "defaultValue": 0.05,
+      "metadata": {
+        "description": "High price for the spot instance cost"
       }
     },
     "adminUsername": {
@@ -274,6 +281,11 @@
               }
             }]
           }
+        },
+        "priority": "Spot",
+        "evictionPolicy": "Deallocate",
+        "billingProfile": {
+            "maxPrice": "[parameters('maxPrice')]"
         }
       }
     }
