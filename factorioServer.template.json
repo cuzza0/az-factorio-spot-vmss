@@ -1,0 +1,282 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deploymentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name for the resources to be deployed"
+      }
+    },
+    "bastionEnabled": {
+      "type": "string",
+      "defaultValue": "disabled",
+      "allowedValues": [
+        "enabled",
+        "disabled"
+      ],
+      "metadata": {
+        "description": "Defines if the Azure Bastion is deployed"
+      }
+    },
+    "vmSku": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v3",
+      "metadata": {
+        "description": "Size of the VM instance to be deployed"
+      }
+    },
+    "instanceCount": {
+      "type": "int",
+      "defaultValue": 1,
+      "allowedValues": [
+        0,
+        1
+      ],
+      "metadata": {
+        "description": "description"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Admin username on VMs."
+      }
+    },
+    "authenticationType": {
+      "type": "string",
+      "defaultValue": "sshPublicKey",
+      "allowedValues": [
+        "sshPublicKey",
+        "password"
+      ],
+      "metadata": {
+        "description": "Type of authentication to use on the Virtual Machine. SSH key is recommended."
+      }
+    },
+    "adminPasswordOrKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "SSH Key or password for the Virtual Machine. SSH key is recommended."
+      }
+    }
+  },
+  "functions": [],
+  "variables": {
+    "deploymentShortName": "[toLower(substring(concat(parameters('deploymentName'), uniqueString(resourceGroup().id)), 0, 9))]",
+    "vmssName": "[toLower(parameters('deploymentName'))]",
+    "addressPrefix": "10.0.0.0/22",
+    "bastionSubnetPrefix": "10.0.1.0/24",
+    "vmssSubnetPrefix": "10.0.0.0/24",
+    "virtualNetworkName": "[concat(variables('deploymentShortName'), 'vnet')]",
+    "vmssPublicIPAddressName": "[concat(variables('deploymentShortName'), 'vmpip')]",
+    "bastionPublicIPAddressName": "[concat(variables('deploymentShortName'), 'bspip')]",
+    "vmssSubnetName": "[concat(variables('deploymentShortName'), 'subnet')]",
+    "bastionName": "[concat(variables('deploymentShortName'), 'bst')]",
+    "loadBalancerName": "[concat(variables('deploymentShortName'), 'lb')]",
+    "natPoolName": "[concat(variables('deploymentShortName'), 'natpool')]",
+    "bePoolName": "[concat(variables('deploymentShortName'), 'bepool')]",
+    "nicName": "[concat(variables('deploymentShortName'), 'nic')]",
+    "ipConfigName": "[concat(variables('deploymentShortName'), 'ipconfig')]",
+    "natStartPort": 50000,
+    "natEndPort": 50119,
+    "natBackendPort": 3389,
+    "osType": {
+      "publisher": "Canonical",
+      "offer": "UbuntuServer",
+      "sku": "18.04-LTS",
+      "version": "latest"
+    },
+    "imageReference": "[variables('osType')]",
+    "linuxConfiguration": {
+      "disablePasswordAuthentication": true,
+      "ssh": {
+        "publicKeys": [
+          {
+            "path": "[concat('/home/', parameters('adminUsername'), '/.ssh/authorized_keys')]",
+            "keyData": "[parameters('adminPasswordOrKey')]"
+          }
+        ]
+      }
+    }  },
+  "resources": [
+    // vnet
+    // subnet bastion
+    // subnet vmss
+    // nsg bastion?
+    // nsg vmss
+    // bastion - conditional
+    // storage account
+    // elb
+    // vmss - conditional instance size
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2020-04-01",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [{
+            "name": "AzureBastionSubnet",
+            "properties": {
+              "addressPrefix": "[variables('bastionSubnetPrefix')]"
+            }
+          },
+          {
+            "name": "[variables('vmssSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('vmssSubnetPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('vmssPublicIPAddressName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2020-04-01",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('deploymentName')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIpAddresses",
+      "condition": "[equals(parameters('bastionEnabled'), 'enabled')]",
+      "name": "[variables('bastionPublicIPAddressName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2020-04-01",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "type": "Microsoft.Network/bastionHosts",
+      "condition": "[equals(parameters('bastionEnabled'), 'enabled')]",
+      "name": "[variables('bastionName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2020-04-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIpAddresses', variables('bastionPublicIPAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), 'AzureBastionSubnet')]"
+      ],
+      "properties": {
+        "ipConfigurations": [{
+          "name": "IpConf",
+          "properties": {
+            "subnet": {
+              "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), 'AzureBastionSubnet')]"
+            },
+            "publicIPAddress": {
+              "id": "[resourceId('Microsoft.Network/publicIpAddresses', variables('bastionPublicIPAddressName'))]"
+            }
+          }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('loadBalancerName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2020-04-01",
+      "dependsOn": [
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('vmssPublicIPAddressName'))]"
+      ],
+      "properties": {
+        "frontendIPConfigurations": [{
+          "name": "LoadBalancerFrontEnd",
+          "properties": {
+            "publicIPAddress": {
+              "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('vmssPublicIPAddressName'))]"
+            }
+          }
+        }],
+        "backendAddressPools": [{
+          "name": "[variables('bePoolName')]"
+        }],
+        "inboundNatPools": [{
+          "name": "[variables('natPoolName')]",
+          "properties": {
+            "frontendIPConfiguration": {
+              "id": "[concat(resourceId('Microsoft.Network/loadBalancers',variables('loadBalancerName')),'/frontendIPConfigurations/loadBalancerFrontEnd')]"
+            },
+            "protocol": "Tcp",
+            "frontendPortRangeStart": "[variables('natStartPort')]",
+            "frontendPortRangeEnd": "[variables('natEndPort')]",
+            "backendPort": "[variables('natBackendPort')]"
+          }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachineScaleSets",
+      "name": "[variables('vmssName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2017-03-30",
+      "dependsOn": [
+        "[concat('Microsoft.Network/loadBalancers/', variables('loadBalancerName'))]",
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "sku": {
+        "name": "[parameters('vmSku')]",
+        "tier": "Standard",
+        "capacity": "[parameters('instanceCount')]"
+      },
+      "properties": {
+        "overprovision": true,
+        "upgradePolicy": {
+          "mode": "Manual"
+        },
+        "virtualMachineProfile": {
+          "storageProfile": {
+            "osDisk": {
+              "createOption": "FromImage",
+              "caching": "ReadWrite"
+            },
+            "imageReference": "[variables('imageReference')]"
+          },
+          "osProfile": {
+            "computerNamePrefix": "[variables('deploymentShortname')]",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPasswordOrKey')]",
+            "linuxConfiguration": "[if(equals(parameters('authenticationType'), 'password'), json('null'), variables('linuxConfiguration'))]"
+          },
+          "networkProfile": {
+            "networkInterfaceConfigurations": [{
+              "name": "[variables('nicName')]",
+              "properties": {
+                "primary": true,
+                "ipConfigurations": [{
+                  "name": "[variables('ipConfigName')]",
+                  "properties": {
+                    "subnet": {
+                      "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('vmssSubnetPrefix'))]"
+                    },
+                    "loadBalancerBackendAddressPools": [{
+                      "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools/', variables('loadBalancerName'),  variables('bePoolName'))]"
+                    }],
+                    "loadBalancerInboundNatPools": [{
+                      "id": "[resourceId('Microsoft.Network/loadBalancers/inboundNatPools/', variables('loadBalancerName'), variables('natPoolName'))]"
+                    }]
+                  }
+                }]
+              }
+            }]
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {}
+}
